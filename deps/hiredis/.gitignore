@@ -1,5 +1,5 @@
 /hiredis-test
-/examples/hiredis-example*
+/hiredis-example*
 /*.o
 /*.so
 /*.dylib

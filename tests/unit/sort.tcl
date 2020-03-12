@@ -95,14 +95,6 @@ start_server {
         assert_encoding ziplist sort-res
     }
 
-    test "SORT extracts STORE correctly" {
-        r command getkeys sort abc store def
-    } {abc def}
-
-    test "SORT extracts multiple STORE correctly" {
-        r command getkeys sort abc store invalid store stillbad store def
-    } {abc def}
-
     test "SORT DESC" {
         assert_equal [lsort -decreasing -integer $result] [r sort tosort DESC]
     }
@@ -162,9 +154,9 @@ start_server {
         r zadd zset 10 d
         r zadd zset 3 e
         r eval {
-            return {redis.call('sort',KEYS[1],'by','nosort','asc'),
-                    redis.call('sort',KEYS[1],'by','nosort','desc')}
-        } 1 zset
+            return {redis.call('sort','zset','by','nosort','asc'),
+                    redis.call('sort','zset','by','nosort','desc')}
+        } 0
     } {{a c e b d} {d b e c a}}
 
     test "SORT sorted set: +inf and -inf handling" {
@@ -187,7 +179,7 @@ start_server {
         assert_equal [lsort -real $floats] [r sort mylist]
     }
 
-    test "SORT with STORE returns zero if result is empty (github issue 224)" {
+    test "SORT with STORE returns zero if result is empty (github isse 224)" {
         r flushdb
         r sort foo store bar
     } {0}
@@ -245,24 +237,6 @@ start_server {
         r set x:a-> 100
         r sort mylist by num get x:*->
     } {100}
-
-    test "SORT by nosort retains native order for lists" {
-        r del testa
-        r lpush testa 2 1 4 3 5
-        r sort testa by nosort
-    } {5 3 4 1 2}
-
-    test "SORT by nosort plus store retains native order for lists" {
-        r del testa
-        r lpush testa 2 1 4 3 5
-        r sort testa by nosort store testb
-        r lrange testb 0 -1
-    } {5 3 4 1 2}
-
-    test "SORT by nosort with limit returns based on original list order" {
-        r sort testa by nosort limit 0 3 store testb
-        r lrange testb 0 -1
-    } {5 3 4}
 
     tags {"slow"} {
         set num 100
