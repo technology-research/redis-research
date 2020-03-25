@@ -164,8 +164,14 @@ typedef struct instanceLink {
                                    the link was down. */
 } instanceLink;
 
+
+
+
+
 typedef struct sentinelRedisInstance {
-    // 标示符，记录被监视实例的状态
+
+
+    // 标示符，记录被监视实例的状态,（SRI_MASTER,SRI_S_DOWN,SRI_O_DOWN,三个值分别表示为正常，主观下线，客观下线）
     int flags;      /* See SRI_... defines */
     // 被监视实例的名字（主服务器的名字一般是配置文件中的，从服务器的名字一般是sentinel定的，格式为ip:port）
     char *name;     /* Master name from the point of view of this sentinel. */
@@ -203,7 +209,26 @@ typedef struct sentinelRedisInstance {
     mstime_t slave_conf_change_time; /* Last time slave master addr changed. */
 
     /* Master specific. */
+
+    /**
+     * 主服务器master特有
+     *
+     * sentinel会以10s的频率向监视的服务器发送info命令，通过info命令来获取redis服务器状态，包括地址，实例名字，主从信息，服务器优先级，数据偏移量等等
+     * sentinels会以2s的频率通过命令连接向master的该频道发送自身数据，然后数据会广播到其他的sentinel，然后根据信息更新该结构
+     * 如果订阅的数据发现，该sentinel是新加入的，则当前的sentinel会和新的sentinel建立一条新的命令连接，同时新的sentinel和当前的也会建立连接，形成双向命令连接
+     * 相连的各个Sentinel可以通过向其他Sentinel发送命令请求来进行信息交换
+     *
+     *
+     * QA：为什么sentinel和被监视的master刚开始交互时，为什么需要建立两条连接（一条命令连接，一条订阅连接）？而sentinel之间只需要一条
+     * 因为sentinel需要通过这条订阅连接发现未知的sentinel。当未知的sentinel通过命令连接向该频道发送自身信息时，就会被其他的sentinel发现。
+     *
+     */
+    // 监视当前master的其他sentinels
+    // 所有sentinels都订阅了__sentinel__:hello频道
     dict *sentinels;    /* Other sentinels monitoring the same master. */
+
+
+    // master中的slave
     dict *slaves;       /* Slaves for this master instance. */
 
     // 判断这个实例客观下线所需要的sentinel投票数量。
@@ -213,14 +238,28 @@ typedef struct sentinelRedisInstance {
     int parallel_syncs; /* How many slaves to reconfigure at same time. */
     char *auth_pass;    /* Password to use for AUTH against master & slaves. */
 
+
+
+    /**
+     * 从服务器slave特有
+     */
     /* Slave specific. */
     mstime_t master_link_down_time; /* Slave replication link down time. */
+    // 从服务器的优先级
     int slave_priority; /* Slave priority according to its INFO output. */
     mstime_t slave_reconf_sent_time; /* Time at which we sent SLAVE OF <new> */
     struct sentinelRedisInstance *master; /* Master instance if it's slave. */
+
+    // info返回中的主服务器地址
     char *slave_master_host;    /* Master host as reported by INFO */
+
+    // info返回中的主服务器端口
     int slave_master_port;      /* Master port as reported by INFO */
+
+    // 主从连接状态
     int slave_master_link_status; /* Master link status as reported by INFO */
+
+    // 当前服务器的复制偏移量
     unsigned long long slave_repl_offset; /* Slave replication offset. */
     /* Failover */
     char *leader;       /* If this is a master instance, this is the runid of
@@ -244,6 +283,11 @@ typedef struct sentinelRedisInstance {
     char *client_reconfig_script;
     sds info; /* cached INFO output */
 } sentinelRedisInstance;
+
+
+
+
+
 
 /* Main state. */
 struct sentinelState {

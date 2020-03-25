@@ -39,10 +39,19 @@ struct clusterNode;
 
 /* clusterLink encapsulates everything needed to talk with a remote node. */
 typedef struct clusterLink {
+    // 创建时间
     mstime_t ctime;             /* Link creation time */
+
+    // socket描述符
     int fd;                     /* TCP socket file descriptor */
+
+    // 发送缓冲区
     sds sndbuf;                 /* Packet send buffer */
+
+    // 接收缓冲区
     sds rcvbuf;                 /* Packet reception buffer */
+
+    // 与这个连接有关的节点
     struct clusterNode *node;   /* Node related to this link if any, or NULL */
 } clusterLink;
 
@@ -113,14 +122,36 @@ typedef struct clusterNodeFailReport {
     mstime_t time;             /* Time of the last report from this node. */
 } clusterNodeFailReport;
 
+
+/**
+ * 集群中的每个节点，一个节点对应clusterNode，不管是否是处于什么角色（主从，在线or宕机）
+ */
 typedef struct clusterNode {
+    // 节点创建的时间
     mstime_t ctime; /* Node object creation time. */
+
+    //节点名字
     char name[CLUSTER_NAMELEN]; /* Node name, hex string, sha1-size */
+
+    // 当前节点的状态（主节点or从节点，在线or下线）
     int flags;      /* CLUSTER_NODE_... */
+
+    // 当前节点的纪元
     uint64_t configEpoch; /* Last configEpoch observed for this node */
+
+    /**
+     * 当客户端向当前节点所在的node执行，cluster addSlots的时候，会更新此数组,同时会向集群中的其他节点进行广播，将slots数组发送给其他node，其他node也会更新保存的节点的对应slots
+     */
+    // 节点负责处理的槽，char = 8位，数组中的char的每一位都代表一个槽，如果为1，代表当前槽是这个节点处理的
     unsigned char slots[CLUSTER_SLOTS/8]; /* slots handled by this node */
+
+    // 负责处理的槽的数量
     int numslots;   /* Number of slots handled by this node */
+
+    // 从节点数量
     int numslaves;  /* Number of slave nodes, if this is a master */
+
+    // 指向从节点的指针
     struct clusterNode **slaves; /* pointers to slave nodes */
     struct clusterNode *slaveof; /* pointer to the master node. Note that it
                                     may be NULL even if the node is a slave
@@ -136,21 +167,62 @@ typedef struct clusterNode {
     char ip[NET_IP_STR_LEN];  /* Latest known IP address of this node */
     int port;                   /* Latest known clients port of this node */
     int cport;                  /* Latest known cluster port of this node. */
+
+    // 与这个节点有关网络方面的东西，比如与这个节点通信的套接字，输入和输出缓冲区
     clusterLink *link;          /* TCP/IP link with this node */
+
+    // 与这个节点相关的错误报告。
     list *fail_reports;         /* List of nodes signaling this as failing */
 } clusterNode;
 
+
+/**
+ * 这个结构用来表示当前节点视角下，集群所处于的状态
+ */
 typedef struct clusterState {
+    // 当前节点
     clusterNode *myself;  /* This node */
+
+    // 当前纪元
     uint64_t currentEpoch;
+
+    // 集群所处状态
     int state;            /* CLUSTER_OK, CLUSTER_FAIL, ... */
+
+    //集群中至少处理着一个槽的节点的数量
     int size;             /* Num of master nodes with at least one slot */
+
+    // key-value,key为节点的名字，value为节点对应的node。
     dict *nodes;          /* Hash table of name -> clusterNode structures */
+
+
     dict *nodes_black_list; /* Nodes we don't re-add for a few seconds. */
     clusterNode *migrating_slots_to[CLUSTER_SLOTS];
     clusterNode *importing_slots_from[CLUSTER_SLOTS];
+
+    /**
+     * 记录集群中所有节点的槽信息，放在了一起，为什么node里面有了slot信息，还要保存一份集群的完整的。
+     * 因为，当客户端指令发送到不属于当前node处理的时候，通过这个slot，可以快速找到能够处理该数据的的clusterNode信息，事件复杂度为O(1)，就不需要去遍历clusterNode了，然后再遍历每个node的slot(这个复杂度为O(n),n为集群中node的数量)。
+     *
+     * 反过来，为什么有了这个slot数组，还要clusterNode中再冗余一份槽信息？
+     * 因为当槽分配的时候，节点node需要向集群中的其他node广播当前节点node的slots信息，冗余一份的话，直接发送就好了，就不需要再遍历这个slots，再进行数据拷贝，效率挺高了很多。
+     *
+     *
+     * cluster addSlots命令的实现，就是更新这个数组以及clusterNode中的数组
+     *
+     * 如果客户端发送了一个不是这个node处理的数据，则会返回move错误，同时返回处理该数据能够处理的正确的node的ip和port
+     *
+     * 计算key属于哪个槽，采用crc16 & 16383，
+     */
     clusterNode *slots[CLUSTER_SLOTS];
     uint64_t slots_keys_count[CLUSTER_SLOTS];
+
+    /**
+     * 跳跃表，保存槽和key之间的关系
+     * 方便能够快速更具槽找到key
+     * 每当节点往数据库中添加一个新的键值对时，节点就会将这个键以及键的槽号关联到slots_to_keys跳跃表
+     * 当节点删除数据库中的某个键值对时，节点就会在slots_to_keys跳跃表解除被删除键与槽号的关联
+     */
     rax *slots_to_keys;
     /* The following fields are used to take the slave state on elections. */
     mstime_t failover_auth_time; /* Time of previous or next election. */
